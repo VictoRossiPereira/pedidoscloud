@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pedidoscloud-config
+  namespace: pedidoscloud
+data:
+  ORDERS_SERVICE_URL:    "http://orders-service:8001"
+  PAYMENTS_SERVICE_URL:  "http://payments-service:8002"
+  INVENTORY_SERVICE_URL: "http://inventory-service:8003"
+  LOG_LEVEL:             "INFO"
+  PYTHONUNBUFFERED:      "1"

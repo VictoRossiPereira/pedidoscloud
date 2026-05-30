@@ -1,0 +1,159 @@
+version: "3.9"
+
+# ════════════════════════════════════════════════════════════════════════════════
+# PedidosCloud – Docker Compose (Ambiente Local)
+# Uso: docker compose up --build
+# ════════════════════════════════════════════════════════════════════════════════
+
+networks:
+  pedidoscloud-net:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  prometheus-data:
+  grafana-data:
+
+x-service-defaults: &service-defaults
+  restart: unless-stopped
+  networks:
+    - pedidoscloud-net
+
+# ── Serviços de Infraestrutura ────────────────────────────────────────────────
+services:
+
+  postgres:
+    <<: *service-defaults
+    image: postgres:16-alpine
+    container_name: pedidoscloud-postgres
+    environment:
+      POSTGRES_USER: pedidos
+      POSTGRES_PASSWORD: pedidos
+      POSTGRES_DB: pedidoscloud
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pedidos -d pedidoscloud"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Observabilidade ──────────────────────────────────────────────────────────
+  prometheus:
+    <<: *service-defaults
+    image: prom/prometheus:v2.52.0
+    container_name: pedidoscloud-prometheus
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=7d"
+
+  grafana:
+    <<: *service-defaults
+    image: grafana/grafana:10.4.0
+    container_name: pedidoscloud-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+
+  # ── Microsserviços ────────────────────────────────────────────────────────────
+  inventory-service:
+    <<: *service-defaults
+    build:
+      context: ./services/inventory
+      dockerfile: Dockerfile
+    container_name: pedidoscloud-inventory
+    image: pedidoscloud/inventory:local
+    environment:
+      - PYTHONUNBUFFERED=1
+    ports:
+      - "8003:8003"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  payments-service:
+    <<: *service-defaults
+    build:
+      context: ./services/payments
+      dockerfile: Dockerfile
+    container_name: pedidoscloud-payments
+    image: pedidoscloud/payments:local
+    environment:
+      - PYTHONUNBUFFERED=1
+    ports:
+      - "8002:8002"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  orders-service:
+    <<: *service-defaults
+    build:
+      context: ./services/orders
+      dockerfile: Dockerfile
+    container_name: pedidoscloud-orders
+    image: pedidoscloud/orders:local
+    environment:
+      DATABASE_URL: postgresql://pedidos:pedidos@postgres:5432/pedidoscloud
+      INVENTORY_SERVICE_URL: http://inventory-service:8003
+      PAYMENTS_SERVICE_URL: http://payments-service:8002
+      PYTHONUNBUFFERED: "1"
+    ports:
+      - "8001:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      inventory-service:
+        condition: service_healthy
+      payments-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  api-gateway:
+    <<: *service-defaults
+    build:
+      context: ./services/api-gateway
+      dockerfile: Dockerfile
+    container_name: pedidoscloud-gateway
+    image: pedidoscloud/api-gateway:local
+    environment:
+      ORDERS_SERVICE_URL: http://orders-service:8001
+      PAYMENTS_SERVICE_URL: http://payments-service:8002
+      INVENTORY_SERVICE_URL: http://inventory-service:8003
+      PYTHONUNBUFFERED: "1"
+    ports:
+      - "8000:8000"
+    depends_on:
+      orders-service:
+        condition: service_healthy
+      payments-service:
+        condition: service_healthy
+      inventory-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
