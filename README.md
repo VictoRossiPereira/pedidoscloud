@@ -58,7 +58,7 @@
 
 ```bash
 # Clone o repositório
-git clone https://github.com/seu-usuario/pedidoscloud.git
+git clone https://github.com/VictoRossiPereira/pedidoscloud.git
 cd pedidoscloud
 
 # Build e start de todos os serviços
@@ -208,7 +208,7 @@ pedidoscloud/
 
 ## 🎥 Vídeo Pitch
 
-> 📌 Link do vídeo: **[Inserir link do YouTube após gravação]**
+> 📌 Link do vídeo: https://youtu.be/_dKh6tk_VDY
 
 ---
 
